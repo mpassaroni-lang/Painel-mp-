@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Painel MP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,500;1,600&family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root{
+    --green:#4e7a5e;
+    --rose:#9e6878;
+    --grad: linear-gradient(135deg, #4e7a5e 0%, #9e6878 100%);
+    --ink:#2b2b28;
+    --paper:#faf8f5;
+    --card:#ffffff;
+    --line:#e7e1d8;
+    --ok:#4e7a5e;
+    --warn:#b5793f;
+    --err:#a5453f;
+    --radius:16px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'DM Sans', sans-serif;
+    max-width:430px; margin:0 auto;
+    min-height:100vh;
+  }
+  h1,h2,h3{ font-family:'Playfair Display', serif; font-style:italic; font-weight:600; margin:0; }
+  .mono{ font-family:'Space Mono', monospace; }
+
+  /* ---------- Setup gate ---------- */
+  #setup{ padding:28px 20px; }
+  #setup label{ display:block; font-size:12px; color:#6b665e; margin:14px 0 4px; }
+  #setup input{ width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; font-family:'DM Sans'; font-size:14px; }
+  #setup button{ margin-top:18px; width:100%; padding:12px; border:none; border-radius:10px; background:var(--grad); color:#fff; font-weight:700; font-size:14px; }
+  #setup p.hint{ font-size:12px; color:#8a8577; line-height:1.5; }
+
+  /* ---------- App shell ---------- */
+  #app{ display:none; padding-bottom:90px; }
+  header{
+    background:var(--grad); color:#fff; padding:18px 18px 22px;
+    border-radius:0 0 22px 22px; position:relative;
+  }
+  .top-row{ display:flex; align-items:center; justify-content:space-between; }
+  .monogram{
+    width:34px; height:34px; border-radius:50%; background:rgba(255,255,255,.18);
+    display:flex; align-items:center; justify-content:center; font-family:'Playfair Display'; font-style:italic; font-weight:600; font-size:15px;
+  }
+  header h1{ font-size:20px; color:#fff; margin-top:10px; }
+  .status-pill{
+    font-size:10.5px; font-family:'Space Mono',monospace; padding:4px 9px; border-radius:20px;
+    background:rgba(255,255,255,.18); display:inline-flex; align-items:center; gap:5px; margin-top:6px;
+  }
+  .status-dot{ width:6px; height:6px; border-radius:50%; background:#fff; }
+  .status-dot.saving{ background:#f4d35e; animation:pulse 1s infinite; }
+  .status-dot.offline{ background:#e39a8a; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  .user-chip{ font-size:11px; opacity:.85; margin-top:8px; display:flex; align-items:center; gap:6px; }
+  .user-chip button{ background:rgba(255,255,255,.2); border:none; color:#fff; font-size:10px; padding:2px 8px; border-radius:8px; }
+
+  nav{
+    display:flex; overflow-x:auto; gap:6px; padding:12px 14px 4px; scrollbar-width:none;
+  }
+  nav::-webkit-scrollbar{ display:none; }
+  nav button{
+    flex:0 0 auto; padding:8px 13px; border-radius:20px; border:1px solid var(--line);
+    background:#fff; font-size:12.5px; font-family:'DM Sans'; font-weight:500; color:#6b665e; white-space:nowrap;
+  }
+  nav button.active{ background:var(--ink); color:#fff; border-color:var(--ink); }
+
+  main{ padding:14px 16px; }
+  .section{ display:none; }
+  .section.active{ display:block; }
+
+  .add-btn{
+    width:100%; padding:12px; border:1.5px dashed var(--rose); border-radius:12px; background:transparent;
+    color:var(--rose); font-weight:700; font-size:13.5px; margin-bottom:14px;
+  }
+
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px; margin-bottom:12px; position:relative;
+  }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; }
+  .field-label{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:#9a9587; margin:10px 0 3px; }
+  .field-label:first-child{ margin-top:0; }
+  input.f, select.f, textarea.f{
+    width:100%; border:1px solid var(--line); border-radius:9px; padding:9px 10px;
+    font-family:'DM Sans'; font-size:14px; color:var(--ink); background:#fdfcfa;
+  }
+  input.f[data-type="number"]{ font-family:'Space Mono', monospace; }
+  textarea.f{ resize:vertical; min-height:44px; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  .field-saved{ position:relative; }
+  .save-flash{
+    position:absolute; right:8px; top:8px; font-size:9px; font-family:'Space Mono';
+    color:var(--ok); opacity:0; transition:opacity .3s;
+  }
+  .save-flash.show{ opacity:1; }
+
+  .icon-btn{
+    border:none; background:#f4f1ea; color:#8a8577; border-radius:8px; padding:5px 8px; font-size:11px;
+  }
+  .card-actions{ display:flex; gap:6px; }
+
+  .history{ margin-top:10px; border-top:1px dashed var(--line); padding-top:8px; display:none; }
+  .history.open{ display:block; }
+  .history-item{ font-size:11px; color:#6b665e; margin-bottom:6px; line-height:1.4; }
+  .history-item b{ color:var(--ink); }
+  .history-restore{ font-size:10px; color:var(--rose); font-weight:700; margin-left:4px; }
+
+  .empty{ text-align:center; color:#9a9587; font-size:13px; padding:30px 10px; }
+
+  .backup-item{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; font-size:12.5px; }
+  .backup-item button{ margin-top:8px; margin-right:6px; padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:#fdfcfa; font-size:11px; }
+
+  .toast{
+    position:fixed; bottom:14px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff;
+    padding:9px 16px; border-radius:20px; font-size:12.5px; opacity:0; pointer-events:none; transition:opacity .3s;
+    max-width:390px; text-align:center; z-index:50;
+  }
+  .toast.show{ opacity:1; }
+  .kpi-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  .kpi{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:12px; }
+  .kpi .lbl{ font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:#9a9587; }
+  .kpi .val{ font-family:'Space Mono', monospace; font-size:17px; font-weight:700; margin-top:4px; color:var(--ink); }
+  .kpi .val.pos{ color:var(--ok); }
+  .kpi .val.neg{ color:var(--err); }
+  .breakdown-row{ display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; font-size:13px; }
+  .breakdown-row .amt{ font-family:'Space Mono', monospace; font-weight:700; }
+  .low-stock{ color:var(--err); font-weight:700; }
+</style>
+</head>
+<body>
+
+<!-- ============ SETUP GATE ============ -->
+<div id="setup">
+  <h1 style="font-size:22px;">Painel MP</h1>
+  <p class="hint">Configuração única do banco de dados (Supabase). Cole as credenciais do seu projeto — elas ficam salvas só neste navegador.</p>
+  <label>Project URL</label>
+  <input id="cfgUrl" placeholder="https://xxxxx.supabase.co">
+  <label>Anon public key</label>
+  <input id="cfgKey" placeholder="eyJhbGciOi...">
+  <label>Seu nome (aparece como responsável pelas alterações)</label>
+  <input id="cfgUser" placeholder="Mirella">
+  <button onclick="saveConfig()">Conectar</button>
+  <p class="hint" style="margin-top:16px;">Antes de conectar, rode o script SQL (schema.sql) no SQL Editor do seu projeto Supabase, uma única vez.</p>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <header>
+    <div class="top-row">
+      <div class="monogram">MP</div>
+      <div class="status-pill"><span class="status-dot" id="statusDot"></span><span id="statusText">Sincronizado</span></div>
+    </div>
+    <h1>Painel MP</h1>
+    <div class="user-chip">
+      <span id="userLabel"></span>
+      <button onclick="changeUser()">trocar</button>
+    </div>
+  </header>
+
+  <nav id="tabs"></nav>
+
+  <main>
+    <div class="section active" data-section="patients">
+      <button class="add-btn" onclick="createRecord('patients')">+ Novo paciente</button>
+      <div id="list-patients"></div>
+    </div>
+    <div class="section" data-section="payments">
+      <button class="add-btn" onclick="createRecord('payments')">+ Novo pagamento</button>
+      <div id="list-payments"></div>
+    </div>
+    <div class="section" data-section="expenses">
+      <button class="add-btn" onclick="createRecord('expenses')">+ Nova despesa</button>
+      <div id="list-expenses"></div>
+    </div>
+    <div class="section" data-section="quick_income">
+      <button class="add-btn" onclick="createRecord('quick_income')">+ Nova receita rápida</button>
+      <div id="list-quick_income"></div>
+    </div>
+    <div class="section" data-section="session_packages">
+      <button class="add-btn" onclick="createRecord('session_packages')">+ Novo pacote de sessões</button>
+      <div id="list-session_packages"></div>
+    </div>
+    <div class="section" data-section="stock">
+      <button class="add-btn" onclick="createRecord('products')">+ Novo item de estoque</button>
+      <div id="list-products"></div>
+    </div>
+    <div class="section" data-section="evolutions">
+      <button class="add-btn" onclick="createRecord('evolutions')">+ Nova evolução</button>
+      <div id="list-evolutions"></div>
+    </div>
+    <div class="section" data-section="fechamento">
+      <div class="kpi-grid">
+        <div class="kpi"><div class="lbl">Faturamento do mês</div><div class="val pos" id="kpiFat">R$ 0,00</div></div>
+        <div class="kpi"><div class="lbl">Despesas do mês</div><div class="val neg" id="kpiDesp">R$ 0,00</div></div>
+      </div>
+      <h3 style="font-size:15px; margin:14px 0 8px;">Por serviço</h3>
+      <div id="breakdownService"></div>
+      <h3 style="font-size:15px; margin:14px 0 8px;">Por forma de pagamento</h3>
+      <div id="breakdownPayment"></div>
+    </div>
+    <div class="section" data-section="backups">
+      <button class="add-btn" onclick="manualBackup()">+ Fazer backup agora</button>
+      <div id="list-backups"></div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= CONFIG / BOOTSTRAP ================= */
+const LS = {
+  url:'mp_supabase_url', key:'mp_supabase_key', user:'mp_user',
+  queue:'mp_offline_queue', cache:'mp_cache'
+};
+
+function saveConfig(){
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  const user = document.getElementById('cfgUser').value.trim() || 'Usuário';
+  if(!url || !key){ alert('Preencha URL e chave.'); return; }
+  localStorage.setItem(LS.url, url);
+  localStorage.setItem(LS.key, key);
+  localStorage.setItem(LS.user, user);
+  boot();
+}
+
+function changeUser(){
+  const cur = localStorage.getItem(LS.user) || '';
+  const name = prompt('Seu nome:', cur);
+  if(name){ localStorage.setItem(LS.user, name); document.getElementById('userLabel').textContent = name; }
+}
+
+let sb = null;
+
+function boot(){
+  const url = localStorage.getItem(LS.url);
+  const key = localStorage.getItem(LS.key);
+  if(!url || !key){ document.getElementById('setup').style.display='block'; return; }
+  document.getElementById('setup').style.display='none';
+  document.getElementById('app').style.display='block';
+  document.getElementById('userLabel').textContent = localStorage.getItem(LS.user) || 'Usuário';
+  sb = window.supabase.createClient(url, key);
+  initTabs();
+  loadAll();
+  setInterval(processQueue, 4000);
+  setInterval(()=>{ if(navigator.onLine) processQueue(); }, 15000);
+  window.addEventListener('online', processQueue);
+  window.addEventListener('offline', updateStatusOffline);
+}
+
+/* ================= TABS ================= */
+const TABS = [
+  {id:'patients', label:'Pacientes'},
+  {id:'payments', label:'Pagamentos'},
+  {id:'expenses', label:'Despesas'},
+  {id:'quick_income', label:'Receita rápida'},
+  {id:'session_packages', label:'Sessões/Pacotes'},
+  {id:'stock', label:'Estoque'},
+  {id:'evolutions', label:'Evoluções'},
+  {id:'fechamento', label:'Fechamento'},
+  {id:'backups', label:'Backups'},
+];
+function initTabs(){
+  const nav = document.getElementById('tabs');
+  nav.innerHTML = TABS.map((t,i)=>`<button class="${i===0?'active':''}" data-tab="${t.id}" onclick="switchTab('${t.id}')">${t.label}</button>`).join('');
+}
+function switchTab(id){
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===id));
+  document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active', s.dataset.section===id));
+  if(id==='fechamento') renderFechamento();
+}
+
+/* ================= STATE / CACHE ================= */
+const cache = { patients:[], payments:[], expenses:[], quick_income:[], session_packages:[], products:[], evolutions:[] };
+const recordSnapshot = {}; // recordSnapshot[table][id] = {field:value,...} last known-good values, for diffing
+
+function keyOf(table,id){ return table+'::'+id; }
+
+/* ================= STATUS INDICATOR ================= */
+let pendingCount = 0;
+function setStatus(mode, text){
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusText');
+  dot.classList.remove('saving','offline');
+  if(mode==='saving') dot.classList.add('saving');
+  if(mode==='offline') dot.classList.add('offline');
+  label.textContent = text;
+}
+function updateStatusOffline(){
+  const q = getQueue();
+  setStatus('offline', q.length ? `Sem conexão — ${q.length} alteração(ões) pendente(s)` : 'Sem conexão');
+}
+function refreshStatusIdle(){
+  const q = getQueue();
+  if(!navigator.onLine){ updateStatusOffline(); return; }
+  if(pendingCount>0 || q.length>0){
+    setStatus('saving', `Salvando… (${pendingCount + q.length})`);
+  } else {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    setStatus('idle', `Salvo automaticamente às ${hh}:${mm}`);
+  }
+}
+
+/* ================= OFFLINE QUEUE ================= */
+function getQueue(){ try{ return JSON.parse(localStorage.getItem(LS.queue)||'[]'); }catch(e){ return []; } }
+function setQueue(q){ localStorage.setItem(LS.queue, JSON.stringify(q)); }
+function enqueue(op){
+  const q = getQueue(); q.push(op); setQueue(q);
+  refreshStatusIdle();
+}
+let processing = false;
+async function processQueue(){
+  if(processing || !navigator.onLine || !sb) return;
+  let q = getQueue();
+  if(!q.length){ refreshStatusIdle(); return; }
+  processing = true;
+  setStatus('saving', `Sincronizando ${q.length} alteração(ões)…`);
+  while(q.length){
+    const op = q[0];
+    try{
+      await runOp(op);
+      q.shift(); setQueue(q);
+    }catch(e){
+      break; // stop on first failure, retry later
+    }
+  }
+  processing = false;
+  refreshStatusIdle();
+}
+async function runOp(op){
+  if(op.kind==='update'){
+    const {error} = await sb.from(op.table).update(op.payload).eq('id', op.id);
+    if(error) throw error;
+  } else if(op.kind==='insert'){
+    const {error} = await sb.from(op.table).insert(op.payload);
+    if(error) throw error;
+  } else if(op.kind==='log'){
+    const {error} = await sb.from('change_log').insert(op.payload);
+    if(error) throw error;
+  }
+}
+
+/* ================= LOAD DATA ================= */
+async function loadAll(){
+  for(const t of ['patients','payments','expenses','quick_income','session_packages','products','evolutions']){
+    await loadTable(t);
+  }
+  renderAll();
+  refreshStatusIdle();
+}
+async function loadTable(table){
+  try{
+    const {data, error} = await sb.from(table).select('*').order('created_at', {ascending:false});
+    if(error) throw error;
+    cache[table] = data || [];
+    recordSnapshot[table] = {};
+    (data||[]).forEach(r=> recordSnapshot[table][r.id] = {...r});
+    localStorage.setItem(LS.cache+'_'+table, JSON.stringify(data||[]));
+  }catch(e){
+    // offline fallback: use last cached copy
+    const cached = localStorage.getItem(LS.cache+'_'+table);
+    cache[table] = cached ? JSON.parse(cached) : [];
+    recordSnapshot[table] = {};
+    cache[table].forEach(r=> recordSnapshot[table][r.id] = {...r});
+    updateStatusOffline();
+  }
+}
+
+/* ================= FIELD CONFIG PER TABLE ================= */
+const FIELDS = {
+  patients:[
+    {name:'name', label:'Nome', type:'text'},
+    {name:'phone', label:'Telefone', type:'text'},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  payments:[
+    {name:'patient_id', label:'Paciente', type:'patient-select'},
+    {name:'service_type', label:'Serviço', type:'select', options:['Pilates','Fisioterapia','Acupuntura','Drenagem Linfática','Protocolo Remodela','Outro']},
+    {name:'amount', label:'Valor (R$)', type:'number'},
+    {name:'payment_date', label:'Data', type:'date'},
+    {name:'status', label:'Status', type:'select', options:['pendente','pago','atrasado']},
+    {name:'payment_method', label:'Forma de pagamento', type:'select', options:['PIX','Cartão','Dinheiro','Outro']},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  expenses:[
+    {name:'description', label:'Descrição', type:'text'},
+    {name:'category', label:'Categoria', type:'select', options:['Aluguel','Material','Equipamento','Marketing','Outro']},
+    {name:'amount', label:'Valor (R$)', type:'number'},
+    {name:'expense_date', label:'Data', type:'date'},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  quick_income:[
+    {name:'description', label:'Descrição', type:'text'},
+    {name:'amount', label:'Valor (R$)', type:'number'},
+    {name:'income_date', label:'Data', type:'date'},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  session_packages:[
+    {name:'patient_id', label:'Paciente', type:'patient-select'},
+    {name:'package_name', label:'Pacote', type:'text'},
+    {name:'total_sessions', label:'Total de sessões', type:'number'},
+    {name:'sessions_used', label:'Sessões usadas', type:'number'},
+    {name:'start_date', label:'Início', type:'date'},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  products:[
+    {name:'name', label:'Nome do item', type:'text'},
+    {name:'category', label:'Categoria', type:'select', options:['Enzima','Agulha','Seringa','Luva','Álcool','Cosmético','Descartável','Equipamento','Outro']},
+    {name:'quantity', label:'Quantidade', type:'number'},
+    {name:'min_stock', label:'Estoque mínimo', type:'number'},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  evolutions:[
+    {name:'patient_id', label:'Paciente', type:'patient-select'},
+    {name:'evolution_date', label:'Data', type:'date'},
+    {name:'service_type', label:'Serviço', type:'select', options:['Pilates','Fisioterapia','Acupuntura','Drenagem Linfática','Protocolo Remodela','Outro']},
+    {name:'notes', label:'Evolução / observações', type:'textarea'},
+  ],
+};
+
+const DEFAULTS = {
+  patients:{name:'', phone:'', notes:'', active:true},
+  payments:{patient_id:null, patient_name:'', service_type:'Pilates', amount:0, payment_date:todayStr(), status:'pendente', payment_method:'PIX', notes:''},
+  expenses:{description:'', category:'Material', amount:0, expense_date:todayStr(), notes:''},
+  quick_income:{description:'', amount:0, income_date:todayStr(), notes:''},
+  session_packages:{patient_id:null, patient_name:'', package_name:'', total_sessions:0, sessions_used:0, start_date:todayStr(), notes:''},
+  products:{name:'', category:'Material', quantity:0, min_stock:0, notes:''},
+  evolutions:{patient_id:null, patient_name:'', evolution_date:todayStr(), service_type:'Pilates', notes:''},
+};
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function uuid(){ return crypto.randomUUID(); }
+
+/* ================= RENDER ================= */
+function renderAll(){
+  Object.keys(FIELDS).forEach(renderTable);
+  renderBackups();
+  renderFechamento();
+}
+
+function renderTable(table){
+  const wrap = document.getElementById('list-'+table);
+  const items = cache[table];
+  if(!items.length){ wrap.innerHTML = '<div class="empty">Nada por aqui ainda.</div>'; return; }
+  wrap.innerHTML = items.map(r => cardHTML(table, r)).join('');
+}
+
+function cardHTML(table, r){
+  const title = cardTitle(table, r);
+  const fieldsHTML = FIELDS[table].map(f => fieldHTML(table, r, f)).join('');
+  return `
+  <div class="card" id="card-${table}-${r.id}">
+    <div class="card-top">
+      <h3 style="font-size:15px;">${title}</h3>
+      <div class="card-actions">
+        <button class="icon-btn" onclick="toggleHistory('${table}','${r.id}')">Histórico</button>
+        <button class="icon-btn" onclick="deleteRecord('${table}','${r.id}')">Excluir</button>
+      </div>
+    </div>
+    ${fieldsHTML}
+    <div class="history" id="hist-${table}-${r.id}"></div>
+  </div>`;
+}
+
+function cardTitle(table, r){
+  if(table==='patients') return r.name || 'Sem nome';
+  if(table==='payments') return (r.patient_name||'Paciente') + ' · ' + fmtMoney(r.amount);
+  if(table==='expenses') return r.description || 'Despesa';
+  if(table==='quick_income') return r.description || 'Receita';
+  if(table==='session_packages') return (r.patient_name||'Paciente') + ' · ' + (r.package_name||'Pacote');
+  if(table==='products'){
+    const low = Number(r.quantity||0) <= Number(r.min_stock||0);
+    return (r.name||'Item') + (low ? ' <span class="low-stock">· estoque baixo</span>' : '');
+  }
+  if(table==='evolutions') return (r.patient_name||'Paciente') + ' · ' + (r.evolution_date||'') + ' · ' + (r.service_type||'');
+  return '';
+}
+function fmtMoney(v){ return 'R$ ' + Number(v||0).toFixed(2).replace('.',','); }
+
+function fieldHTML(table, r, f){
+  const val = r[f.name] ?? '';
+  const id = `f-${table}-${r.id}-${f.name}`;
+  if(f.type==='textarea'){
+    return `<div class="field-label">${f.label}</div><textarea class="f" id="${id}" oninput="onFieldInput('${table}','${r.id}','${f.name}',this.value)">${escapeHTML(val)}</textarea>`;
+  }
+  if(f.type==='select'){
+    const opts = f.options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('');
+    return `<div class="field-label">${f.label}</div><select class="f" id="${id}" onchange="onFieldInput('${table}','${r.id}','${f.name}',this.value)">${opts}</select>`;
+  }
+  if(f.type==='patient-select'){
+    const opts = cache.patients.map(p=>`<option value="${p.id}" ${p.id===val?'selected':''}>${escapeHTML(p.name||'Sem nome')}</option>`).join('');
+    return `<div class="field-label">${f.label}</div><select class="f" id="${id}" onchange="onPatientSelect('${table}','${r.id}',this.value)"><option value="">—</option>${opts}</select>`;
+  }
+  if(f.type==='number'){
+    return `<div class="field-label">${f.label}</div><input class="f" data-type="number" type="number" step="0.01" id="${id}" value="${val}" oninput="onFieldInput('${table}','${r.id}','${f.name}',this.value)">`;
+  }
+  if(f.type==='date'){
+    return `<div class="field-label">${f.label}</div><input class="f" type="date" id="${id}" value="${val}" onchange="onFieldInput('${table}','${r.id}','${f.name}',this.value)">`;
+  }
+  return `<div class="field-label">${f.label}</div><input class="f" type="text" id="${id}" value="${escapeHTML(val)}" oninput="onFieldInput('${table}','${r.id}','${f.name}',this.value)">`;
+}
+function escapeHTML(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ================= CREATE / DELETE ================= */
+async function createRecord(table){
+  const id = uuid();
+  const user = localStorage.getItem(LS.user) || 'Usuário';
+  const payload = {id, ...DEFAULTS[table], updated_at:new Date().toISOString(), updated_by:user};
+  cache[table].unshift(payload);
+  recordSnapshot[table][id] = {...payload};
+  renderTable(table);
+
+  if(navigator.onLine && sb){
+    try{
+      const {error} = await sb.from(table).insert(payload);
+      if(error) throw error;
+    }catch(e){
+      enqueue({kind:'insert', table, payload});
+    }
+  } else {
+    enqueue({kind:'insert', table, payload});
+  }
+  refreshStatusIdle();
+}
+
+async function deleteRecord(table, id){
+  if(!confirm('Excluir este registro? Ele continuará recuperável pelo histórico de alterações.')) return;
+  cache[table] = cache[table].filter(r=>r.id!==id);
+  renderTable(table);
+  if(navigator.onLine && sb){
+    try{ await sb.from(table).delete().eq('id', id); }
+    catch(e){ enqueue({kind:'delete-fallback-note', table, id, payload:{}}); }
+  }
+}
+
+/* ================= AUTOSAVE ================= */
+const timers = {};
+function onPatientSelect(table, id, patientId){
+  const patient = cache.patients.find(p=>p.id===patientId);
+  const name = patient ? (patient.name||'') : '';
+  saveFields(table, id, {patient_id: patientId || null, patient_name: name});
+}
+function onFieldInput(table, id, field, value){
+  const tKey = keyOf(table,id)+'::'+field;
+  clearTimeout(timers[tKey]);
+  timers[tKey] = setTimeout(()=>{
+    if(field==='amount' || field==='total_sessions' || field==='sessions_used'){
+      value = value===''? 0 : Number(value);
+    }
+    saveFields(table, id, {[field]: value});
+  }, 500);
+  pendingCount++;
+  setStatus('saving','Salvando…');
+}
+
+async function saveFields(table, id, fieldsObj){
+  const user = localStorage.getItem(LS.user) || 'Usuário';
+  const before = recordSnapshot[table]?.[id] || {};
+  const changedLogs = [];
+  Object.keys(fieldsObj).forEach(f=>{
+    const oldV = before[f];
+    const newV = fieldsObj[f];
+    if(String(oldV??'') !== String(newV??'')){
+      changedLogs.push({table_name:table, record_id:id, field_name:f, old_value: oldV===null||oldV===undefined? null : String(oldV), new_value: newV===null||newV===undefined? null : String(newV), changed_by:user});
+    }
+  });
+  const payload = {...fieldsObj, updated_at:new Date().toISOString(), updated_by:user};
+
+  // update local cache + snapshot immediately (optimistic)
+  const rec = cache[table].find(r=>r.id===id);
+  if(rec) Object.assign(rec, payload);
+  recordSnapshot[table][id] = {...(recordSnapshot[table][id]||{}), ...payload};
+  if(table==='payments' || table==='session_packages'){
+    if('patient_id' in fieldsObj) renderTable(table); // refresh title
+  }
+
+  if(pendingCount>0) pendingCount--;
+
+  if(navigator.onLine && sb){
+    try{
+      const {error} = await sb.from(table).update(payload).eq('id', id);
+      if(error) throw error;
+      for(const log of changedLogs){
+        try{ await sb.from('change_log').insert(log); }catch(e){ enqueue({kind:'log', payload:log}); }
+      }
+      flashSaved(table, id);
+    }catch(e){
+      enqueue({kind:'update', table, id, payload});
+      changedLogs.forEach(log=> enqueue({kind:'log', payload:log}));
+    }
+  } else {
+    enqueue({kind:'update', table, id, payload});
+    changedLogs.forEach(log=> enqueue({kind:'log', payload:log}));
+  }
+  refreshStatusIdle();
+}
+
+function flashSaved(table, id){
+  const card = document.getElementById(`card-${table}-${id}`);
+  if(!card) return;
+}
+
+/* ================= HISTORY ================= */
+async function toggleHistory(table, id){
+  const el = document.getElementById(`hist-${table}-${id}`);
+  const isOpen = el.classList.contains('open');
+  if(isOpen){ el.classList.remove('open'); el.innerHTML=''; return; }
+  el.classList.add('open');
+  el.innerHTML = '<div class="history-item">Carregando…</div>';
+  try{
+    const {data, error} = await sb.from('change_log').select('*')
+      .eq('table_name', table).eq('record_id', id)
+      .order('changed_at', {ascending:false}).limit(25);
+    if(error) throw error;
+    if(!data.length){ el.innerHTML = '<div class="history-item">Sem alterações registradas ainda.</div>'; return; }
+    el.innerHTML = data.map(h=>{
+      const d = new Date(h.changed_at);
+      const when = d.toLocaleString('pt-BR');
+      return `<div class="history-item"><b>${h.field_name}</b>: "${escapeHTML(h.old_value??'—')}" → "${escapeHTML(h.new_value??'—')}"<br>${when} · ${escapeHTML(h.changed_by||'—')}
+        <span class="history-restore" onclick="restoreValue('${table}','${id}','${h.field_name}', ${JSON.stringify(h.old_value)})">restaurar valor anterior</span></div>`;
+    }).join('');
+  }catch(e){
+    el.innerHTML = '<div class="history-item">Sem conexão — histórico indisponível agora.</div>';
+  }
+}
+function restoreValue(table, id, field, oldValue){
+  if(!confirm('Restaurar este valor anterior no campo "'+field+'"?')) return;
+  saveFields(table, id, {[field]: oldValue});
+  renderTable(table);
+  toggleHistory(table, id); toggleHistory(table, id);
+}
+
+/* ================= BACKUPS ================= */
+async function manualBackup(){
+  if(!navigator.onLine || !sb){ toast('Sem conexão — não é possível gerar backup agora.'); return; }
+  try{
+    const {error} = await sb.rpc('create_backup_snapshot', {snap_type:'manual'});
+    if(error) throw error;
+    toast('Backup criado com sucesso.');
+    renderBackups();
+  }catch(e){ toast('Erro ao criar backup: ' + e.message); }
+}
+async function renderBackups(){
+  const wrap = document.getElementById('list-backups');
+  if(!sb){ return; }
+  try{
+    const {data, error} = await sb.from('backup_snapshots').select('id,snapshot_type,created_at').order('created_at',{ascending:false}).limit(30);
+    if(error) throw error;
+    if(!data.length){ wrap.innerHTML = '<div class="empty">Nenhum backup ainda. O sistema cria automaticamente a cada hora e diariamente.</div>'; return; }
+    wrap.innerHTML = data.map(b=>{
+      const when = new Date(b.created_at).toLocaleString('pt-BR');
+      return `<div class="backup-item"><b>${b.snapshot_type}</b> · ${when}
+        <div><button onclick="downloadBackup('${b.id}')">Baixar JSON</button><button onclick="restoreBackup('${b.id}')">Restaurar</button></div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    wrap.innerHTML = '<div class="empty">Sem conexão — lista de backups indisponível agora.</div>';
+  }
+}
+async function downloadBackup(id){
+  const {data, error} = await sb.from('backup_snapshots').select('*').eq('id', id).single();
+  if(error){ toast('Erro ao baixar backup.'); return; }
+  const blob = new Blob([JSON.stringify(data.data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `backup-painel-mp-${id}.json`;
+  a.click();
+}
+async function restoreBackup(id){
+  if(!confirm('Restaurar este backup? Os registros existentes com o mesmo ID serão sobrescritos com os dados do backup. Registros criados depois do backup não serão apagados.')) return;
+  const {data, error} = await sb.from('backup_snapshots').select('*').eq('id', id).single();
+  if(error){ toast('Erro ao carregar backup.'); return; }
+  const snap = data.data;
+  for(const table of ['patients','payments','expenses','quick_income','session_packages']){
+    const rows = snap[table] || [];
+    if(rows.length){
+      const {error:upErr} = await sb.from(table).upsert(rows);
+      if(upErr) console.error(upErr);
+    }
+  }
+  toast('Backup restaurado.');
+  loadAll();
+}
+
+/* ================= FECHAMENTO DE CAIXA ================= */
+function renderFechamento(){
+  const kpiFat = document.getElementById('kpiFat');
+  const kpiDesp = document.getElementById('kpiDesp');
+  const bkService = document.getElementById('breakdownService');
+  const bkPayment = document.getElementById('breakdownPayment');
+  if(!kpiFat) return; // seção ainda não renderizada
+  const now = new Date();
+  const ym = now.toISOString().slice(0,7);
+
+  let totalFat = 0, totalDesp = 0;
+  const byService = {};
+  const byPayment = {};
+
+  (cache.payments||[]).forEach(p=>{
+    if((p.payment_date||'').slice(0,7) !== ym) return;
+    const v = Number(p.amount||0);
+    totalFat += v;
+    const s = p.service_type || 'Outro';
+    byService[s] = (byService[s]||0) + v;
+    const pm = p.payment_method || 'Não informado';
+    byPayment[pm] = (byPayment[pm]||0) + v;
+  });
+  (cache.quick_income||[]).forEach(q=>{
+    if((q.income_date||'').slice(0,7) !== ym) return;
+    const v = Number(q.amount||0);
+    totalFat += v;
+    byService['Receita rápida'] = (byService['Receita rápida']||0) + v;
+  });
+  (cache.expenses||[]).forEach(e=>{
+    if((e.expense_date||'').slice(0,7) !== ym) return;
+    totalDesp += Number(e.amount||0);
+  });
+
+  kpiFat.textContent = fmtMoney(totalFat);
+  kpiDesp.textContent = fmtMoney(totalDesp);
+
+  const serviceEntries = Object.entries(byService).sort((a,b)=> b[1]-a[1]);
+  bkService.innerHTML = serviceEntries.length ? serviceEntries.map(([k,v])=>
+    `<div class="breakdown-row"><span>${escapeHTML(k)}</span><span class="amt">${fmtMoney(v)}</span></div>`
+  ).join('') : '<div class="empty">Nenhum lançamento este mês ainda.</div>';
+
+  const paymentEntries = Object.entries(byPayment).sort((a,b)=> b[1]-a[1]);
+  bkPayment.innerHTML = paymentEntries.length ? paymentEntries.map(([k,v])=>
+    `<div class="breakdown-row"><span>${escapeHTML(k)}</span><span class="amt">${fmtMoney(v)}</span></div>`
+  ).join('') : '<div class="empty">Nenhum pagamento este mês ainda.</div>';
+}
+
+/* ================= TOAST ================= */
+let toastTimer;
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=> el.classList.remove('show'), 3200);
+}
+
+/* ================= INIT ================= */
+document.getElementById('cfgUrl').value = localStorage.getItem(LS.url) || '';
+document.getElementById('cfgKey').value = localStorage.getItem(LS.key) || '';
+document.getElementById('cfgUser').value = localStorage.getItem(LS.user) || '';
+boot();
+</script>
+</body>
+</html>
