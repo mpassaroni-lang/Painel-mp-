@@ -124,6 +124,15 @@
     max-width:390px; text-align:center; z-index:50;
   }
   .toast.show{ opacity:1; }
+  .kpi-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  .kpi{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:12px; }
+  .kpi .lbl{ font-size:10px; text-transform:uppercase; letter-spacing:.04em; color:#9a9587; }
+  .kpi .val{ font-family:'Space Mono', monospace; font-size:17px; font-weight:700; margin-top:4px; color:var(--ink); }
+  .kpi .val.pos{ color:var(--ok); }
+  .kpi .val.neg{ color:var(--err); }
+  .breakdown-row{ display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 12px; margin-bottom:8px; font-size:13px; }
+  .breakdown-row .amt{ font-family:'Space Mono', monospace; font-weight:700; }
+  .low-stock{ color:var(--err); font-weight:700; }
 </style>
 </head>
 <body>
@@ -179,7 +188,34 @@
       <button class="add-btn" onclick="createRecord('session_packages')">+ Novo pacote de sessões</button>
       <div id="list-session_packages"></div>
     </div>
+    <div class="section" data-section="stock">
+      <button class="add-btn" onclick="createRecord('products')">+ Novo item de estoque</button>
+      <div id="list-products"></div>
+    </div>
+    <div class="section" data-section="evolutions">
+      <button class="add-btn" onclick="createRecord('evolutions')">+ Nova evolução</button>
+      <div id="list-evolutions"></div>
+    </div>
+    <div class="section" data-section="fechamento">
+      <div class="kpi-grid">
+        <div class="kpi"><div class="lbl">Faturamento do mês</div><div class="val pos" id="kpiFat">R$ 0,00</div></div>
+        <div class="kpi"><div class="lbl">Despesas do mês</div><div class="val neg" id="kpiDesp">R$ 0,00</div></div>
+      </div>
+      <h3 style="font-size:15px; margin:14px 0 8px;">Por serviço</h3>
+      <div id="breakdownService"></div>
+      <h3 style="font-size:15px; margin:14px 0 8px;">Por forma de pagamento</h3>
+      <div id="breakdownPayment"></div>
+    </div>
     <div class="section" data-section="backups">
+      <div class="card" style="margin-bottom:12px;">
+        <div class="field-label">Fila de sincronização</div>
+        <div id="queueStatus" style="font-size:13px; margin:6px 0 10px;"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="icon-btn" onclick="processQueue()">Forçar sincronização agora</button>
+          <button class="icon-btn" onclick="toggleFailedView()">Ver falhas</button>
+        </div>
+        <div id="failedList" style="display:none; margin-top:10px;"></div>
+      </div>
       <button class="add-btn" onclick="manualBackup()">+ Fazer backup agora</button>
       <div id="list-backups"></div>
     </div>
@@ -237,6 +273,9 @@ const TABS = [
   {id:'expenses', label:'Despesas'},
   {id:'quick_income', label:'Receita rápida'},
   {id:'session_packages', label:'Sessões/Pacotes'},
+  {id:'stock', label:'Estoque'},
+  {id:'evolutions', label:'Evoluções'},
+  {id:'fechamento', label:'Fechamento'},
   {id:'backups', label:'Backups'},
 ];
 function initTabs(){
@@ -246,10 +285,12 @@ function initTabs(){
 function switchTab(id){
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===id));
   document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active', s.dataset.section===id));
+  if(id==='fechamento') renderFechamento();
+  if(id==='backups') renderQueueStatus();
 }
 
 /* ================= STATE / CACHE ================= */
-const cache = { patients:[], payments:[], expenses:[], quick_income:[], session_packages:[] };
+const cache = { patients:[], payments:[], expenses:[], quick_income:[], session_packages:[], products:[], evolutions:[] };
 const recordSnapshot = {}; // recordSnapshot[table][id] = {field:value,...} last known-good values, for diffing
 
 function keyOf(table,id){ return table+'::'+id; }
@@ -295,24 +336,38 @@ async function processQueue(){
   if(!q.length){ refreshStatusIdle(); return; }
   processing = true;
   setStatus('saving', `Sincronizando ${q.length} alteração(ões)…`);
-  while(q.length){
+  let guard = 0;
+  while(q.length && guard < 500){
+    guard++;
     const op = q[0];
     try{
       await runOp(op);
       q.shift(); setQueue(q);
     }catch(e){
-      break; // stop on first failure, retry later
+      op.attempts = (op.attempts||0) + 1;
+      if(op.attempts >= 3){
+        const failed = getFailedQueue();
+        failed.push({...op, error: String((e&&e.message)||e)});
+        setFailedQueue(failed);
+        q.shift(); setQueue(q);
+      } else {
+        q[0] = op; setQueue(q);
+        break;
+      }
     }
   }
   processing = false;
   refreshStatusIdle();
+  renderQueueStatus();
 }
+function getFailedQueue(){ try{ return JSON.parse(localStorage.getItem(LS.queue+'_failed')||'[]'); }catch(e){ return []; } }
+function setFailedQueue(f){ localStorage.setItem(LS.queue+'_failed', JSON.stringify(f)); }
 async function runOp(op){
   if(op.kind==='update'){
     const {error} = await sb.from(op.table).update(op.payload).eq('id', op.id);
     if(error) throw error;
   } else if(op.kind==='insert'){
-    const {error} = await sb.from(op.table).insert(op.payload);
+    const {error} = await sb.from(op.table).upsert(op.payload);
     if(error) throw error;
   } else if(op.kind==='log'){
     const {error} = await sb.from('change_log').insert(op.payload);
@@ -322,7 +377,7 @@ async function runOp(op){
 
 /* ================= LOAD DATA ================= */
 async function loadAll(){
-  for(const t of ['patients','payments','expenses','quick_income','session_packages']){
+  for(const t of ['patients','payments','expenses','quick_income','session_packages','products','evolutions']){
     await loadTable(t);
   }
   renderAll();
@@ -359,6 +414,7 @@ const FIELDS = {
     {name:'amount', label:'Valor (R$)', type:'number'},
     {name:'payment_date', label:'Data', type:'date'},
     {name:'status', label:'Status', type:'select', options:['pendente','pago','atrasado']},
+    {name:'payment_method', label:'Forma de pagamento', type:'select', options:['PIX','Cartão','Dinheiro','Outro']},
     {name:'notes', label:'Observações', type:'textarea'},
   ],
   expenses:[
@@ -382,14 +438,29 @@ const FIELDS = {
     {name:'start_date', label:'Início', type:'date'},
     {name:'notes', label:'Observações', type:'textarea'},
   ],
+  products:[
+    {name:'name', label:'Nome do item', type:'text'},
+    {name:'category', label:'Categoria', type:'select', options:['Enzima','Agulha','Seringa','Luva','Álcool','Cosmético','Descartável','Equipamento','Outro']},
+    {name:'quantity', label:'Quantidade', type:'number'},
+    {name:'min_stock', label:'Estoque mínimo', type:'number'},
+    {name:'notes', label:'Observações', type:'textarea'},
+  ],
+  evolutions:[
+    {name:'patient_id', label:'Paciente', type:'patient-select'},
+    {name:'evolution_date', label:'Data', type:'date'},
+    {name:'service_type', label:'Serviço', type:'select', options:['Pilates','Fisioterapia','Acupuntura','Drenagem Linfática','Protocolo Remodela','Outro']},
+    {name:'notes', label:'Evolução / observações', type:'textarea'},
+  ],
 };
 
 const DEFAULTS = {
   patients:{name:'', phone:'', notes:'', active:true},
-  payments:{patient_id:null, patient_name:'', service_type:'Pilates', amount:0, payment_date:todayStr(), status:'pendente', notes:''},
+  payments:{patient_id:null, patient_name:'', service_type:'Pilates', amount:0, payment_date:todayStr(), status:'pendente', payment_method:'PIX', notes:''},
   expenses:{description:'', category:'Material', amount:0, expense_date:todayStr(), notes:''},
   quick_income:{description:'', amount:0, income_date:todayStr(), notes:''},
   session_packages:{patient_id:null, patient_name:'', package_name:'', total_sessions:0, sessions_used:0, start_date:todayStr(), notes:''},
+  products:{name:'', category:'Material', quantity:0, min_stock:0, notes:''},
+  evolutions:{patient_id:null, patient_name:'', evolution_date:todayStr(), service_type:'Pilates', notes:''},
 };
 function todayStr(){ return new Date().toISOString().slice(0,10); }
 function uuid(){ return crypto.randomUUID(); }
@@ -398,6 +469,7 @@ function uuid(){ return crypto.randomUUID(); }
 function renderAll(){
   Object.keys(FIELDS).forEach(renderTable);
   renderBackups();
+  renderFechamento();
 }
 
 function renderTable(table){
@@ -430,6 +502,11 @@ function cardTitle(table, r){
   if(table==='expenses') return r.description || 'Despesa';
   if(table==='quick_income') return r.description || 'Receita';
   if(table==='session_packages') return (r.patient_name||'Paciente') + ' · ' + (r.package_name||'Pacote');
+  if(table==='products'){
+    const low = Number(r.quantity||0) <= Number(r.min_stock||0);
+    return (r.name||'Item') + (low ? ' <span class="low-stock">· estoque baixo</span>' : '');
+  }
+  if(table==='evolutions') return (r.patient_name||'Paciente') + ' · ' + (r.evolution_date||'') + ' · ' + (r.service_type||'');
   return '';
 }
 function fmtMoney(v){ return 'R$ ' + Number(v||0).toFixed(2).replace('.',','); }
@@ -637,6 +714,97 @@ async function restoreBackup(id){
   }
   toast('Backup restaurado.');
   loadAll();
+}
+
+/* ================= FILA / FALHAS ================= */
+function renderQueueStatus(){
+  const el = document.getElementById('queueStatus');
+  if(!el) return;
+  const q = getQueue();
+  const f = getFailedQueue();
+  el.innerHTML = `Pendentes: <b>${q.length}</b> &nbsp;·&nbsp; Falharam 3x (precisam de atenção): <b style="color:${f.length? 'var(--err)':'inherit'}">${f.length}</b>`;
+}
+function toggleFailedView(){
+  const el = document.getElementById('failedList');
+  const open = el.style.display === 'block';
+  if(open){ el.style.display='none'; return; }
+  const f = getFailedQueue();
+  if(!f.length){ el.innerHTML = '<div class="empty">Nenhuma falha registrada.</div>'; }
+  else{
+    el.innerHTML = f.map((item,i)=>`
+      <div class="backup-item">
+        <b>${escapeHTML(item.table||'')}</b> · ${escapeHTML(item.kind||'')}<br>
+        <span style="color:var(--err); font-size:11px;">${escapeHTML(item.error||'')}</span><br>
+        <button onclick="retryFailed(${i})">Tentar de novo</button>
+        <button onclick="discardFailed(${i})">Descartar</button>
+      </div>`).join('');
+  }
+  el.style.display='block';
+}
+function retryFailed(i){
+  const f = getFailedQueue();
+  const item = f[i];
+  if(!item) return;
+  f.splice(i,1); setFailedQueue(f);
+  delete item.attempts; delete item.error;
+  const q = getQueue(); q.push(item); setQueue(q);
+  toast('Reenviado pra fila. Sincronizando...');
+  processQueue();
+  renderQueueStatus(); toggleFailedView(); toggleFailedView();
+}
+function discardFailed(i){
+  if(!confirm('Descartar esta alteração? Ela não será salva no banco de dados.')) return;
+  const f = getFailedQueue();
+  f.splice(i,1); setFailedQueue(f);
+  renderQueueStatus(); toggleFailedView(); toggleFailedView();
+}
+
+/* ================= FECHAMENTO DE CAIXA ================= */
+function renderFechamento(){
+  const kpiFat = document.getElementById('kpiFat');
+  const kpiDesp = document.getElementById('kpiDesp');
+  const bkService = document.getElementById('breakdownService');
+  const bkPayment = document.getElementById('breakdownPayment');
+  if(!kpiFat) return; // seção ainda não renderizada
+  const now = new Date();
+  const ym = now.toISOString().slice(0,7);
+
+  let totalFat = 0, totalDesp = 0;
+  const byService = {};
+  const byPayment = {};
+
+  (cache.payments||[]).forEach(p=>{
+    if((p.payment_date||'').slice(0,7) !== ym) return;
+    const v = Number(p.amount||0);
+    totalFat += v;
+    const s = p.service_type || 'Outro';
+    byService[s] = (byService[s]||0) + v;
+    const pm = p.payment_method || 'Não informado';
+    byPayment[pm] = (byPayment[pm]||0) + v;
+  });
+  (cache.quick_income||[]).forEach(q=>{
+    if((q.income_date||'').slice(0,7) !== ym) return;
+    const v = Number(q.amount||0);
+    totalFat += v;
+    byService['Receita rápida'] = (byService['Receita rápida']||0) + v;
+  });
+  (cache.expenses||[]).forEach(e=>{
+    if((e.expense_date||'').slice(0,7) !== ym) return;
+    totalDesp += Number(e.amount||0);
+  });
+
+  kpiFat.textContent = fmtMoney(totalFat);
+  kpiDesp.textContent = fmtMoney(totalDesp);
+
+  const serviceEntries = Object.entries(byService).sort((a,b)=> b[1]-a[1]);
+  bkService.innerHTML = serviceEntries.length ? serviceEntries.map(([k,v])=>
+    `<div class="breakdown-row"><span>${escapeHTML(k)}</span><span class="amt">${fmtMoney(v)}</span></div>`
+  ).join('') : '<div class="empty">Nenhum lançamento este mês ainda.</div>';
+
+  const paymentEntries = Object.entries(byPayment).sort((a,b)=> b[1]-a[1]);
+  bkPayment.innerHTML = paymentEntries.length ? paymentEntries.map(([k,v])=>
+    `<div class="breakdown-row"><span>${escapeHTML(k)}</span><span class="amt">${fmtMoney(v)}</span></div>`
+  ).join('') : '<div class="empty">Nenhum pagamento este mês ainda.</div>';
 }
 
 /* ================= TOAST ================= */
